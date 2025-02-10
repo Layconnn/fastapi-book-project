@@ -163,4 +163,4 @@ cython_debug/
 
 # SSH keys
 private
-private.pub
+deploy_key.pem

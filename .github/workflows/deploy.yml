@@ -27,7 +27,7 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > deploy_key.pem
           chmod 600 deploy_key.pem
 
-          ssh -o StrictHostKeyChecking=no -i deploy_key.pem $USER@$SERVER_IP powershell << 'EOF'
+          ssh -v -o StrictHostKeyChecking=no -i deploy_key.pem khalil@192.168.212.164 powershell << 'EOF'
             cd C:\Users\DELL\Desktop\fastapi-book-project
             
             git pull origin main
@@ -35,5 +35,5 @@ jobs:
             C:\Users\DELL\Desktop\fastapi-book-project\venv\Scripts\python.exe -m pip install -r requirements.txt
             
             taskkill /F /IM python.exe || echo "No FastAPI process running"
-            start /B "" "C:\Users\DELL\Desktop\fastapi-book-project\venv\Scripts\uvicorn.exe" api.main:app --host 0.0.0.0 --port 8000
+            start /B "" "C:\Users\DELL\Desktop\fastapi-book-project\venv\Scripts\uvicorn.exe" main:app --host 0.0.0.0 --port 8000
           EOF
