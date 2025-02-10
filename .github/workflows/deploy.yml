@@ -1,0 +1,39 @@
+name: CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Deploy to Windows Server
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          USER: ${{ secrets.USER }}
+        run: |
+          if [[ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]]; then echo "❌ SSH_PRIVATE_KEY is missing"; else echo "✅ SSH_PRIVATE_KEY is set"; fi
+          if [[ -z "${{ secrets.SERVER_IP }}" ]]; then echo "❌ SERVER_IP is missing"; else echo "✅ SERVER_IP is set"; fi
+          if [[ -z "${{ secrets.USER }}" ]]; then echo "❌ USER is missing"; else echo "✅ USER is set"; fi
+
+          echo "$SSH_PRIVATE_KEY" > deploy_key.pem
+          chmod 600 deploy_key.pem
+
+          ssh -o StrictHostKeyChecking=no -i deploy_key.pem $USER@$SERVER_IP powershell << 'EOF'
+            cd C:\Users\DELL\Desktop\fastapi-book-project
+            
+            git pull origin main
+            
+            C:\Users\DELL\Desktop\fastapi-book-project\venv\Scripts\python.exe -m pip install -r requirements.txt
+            
+            taskkill /F /IM python.exe || echo "No FastAPI process running"
+            start /B "" "C:\Users\DELL\Desktop\fastapi-book-project\venv\Scripts\uvicorn.exe" api.main:app --host 0.0.0.0 --port 8000
+          EOF
