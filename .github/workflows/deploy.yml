@@ -25,7 +25,8 @@ jobs:
           if [[ -z "${{ secrets.USER }}" ]]; then echo "❌ USER is missing"; else echo "✅ USER is set"; fi
 
           echo "$SSH_PRIVATE_KEY" > deploy_key.pem
-          chmod 600 deploy_key.pem
+          icacls deploy_key.pem /inheritance:r
+          icacls deploy_key.pem /grant:r "$($env:khalil):(R)"
 
           ssh -v -o StrictHostKeyChecking=no -i deploy_key.pem khalil@192.168.212.164 powershell << 'EOF'
             cd C:\Users\DELL\Desktop\fastapi-book-project
