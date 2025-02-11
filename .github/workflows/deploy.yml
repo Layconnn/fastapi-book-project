@@ -26,7 +26,7 @@ jobs:
 
           echo "$SSH_PRIVATE_KEY" > deploy_key.pem
           icacls deploy_key.pem /inheritance:r
-          icacls deploy_key.pem /grant:r "$($env:USERNAME):(R)"
+          icacls deploy_key.pem /grant:r "$($env:khalil):(R)"
 
           ssh -v -o StrictHostKeyChecking=no -i deploy_key.pem $USER@$SERVER_IP powershell << 'EOF'
             cd C:\Users\DELL\Desktop\fastapi-book-project
