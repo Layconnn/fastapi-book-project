@@ -23,14 +23,32 @@ jobs:
 
       - name: Start ngrok tunnel
         shell: pwsh
-        run: Start-Process -NoNewWindow -FilePath ngrok -ArgumentList "http 8000"
+        run: |
+          Start-Process -NoNewWindow -FilePath ngrok -ArgumentList "http 8000"
+          Start-Sleep -Seconds 5  # Ensure ngrok has time to start
 
       - name: Get ngrok public URL
         id: get_ngrok_url
         shell: pwsh
         run: |
-          Start-Sleep -Seconds 5  # Wait for ngrok to start
-          $NGROK_URL = (Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels").tunnels[0].public_url
+          $attempts = 0
+          do {
+            Start-Sleep -Seconds 3
+            try {
+              $NGROK_RESPONSE = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -ErrorAction Stop
+              $NGROK_URL = $NGROK_RESPONSE.tunnels[0].public_url
+            } catch {
+              Write-Host "⚠️ ngrok is not ready yet. Retrying..."
+              $NGROK_URL = $null
+            }
+            $attempts++
+          } while (-not $NGROK_URL -and $attempts -lt 5)
+
+          if (-not $NGROK_URL) {
+            Write-Host "❌ Failed to retrieve ngrok URL after 5 attempts."
+            exit 1
+          }
+
           echo "NGROK_URL=$NGROK_URL" | Out-File -FilePath $env:GITHUB_ENV -Append
           echo "SERVER_IP=$NGROK_URL" | Out-File -FilePath $env:GITHUB_ENV -Append
           echo "✅ NGROK_URL is set: $NGROK_URL"
@@ -38,6 +56,8 @@ jobs:
       - name: Create and Update .env file
         shell: pwsh
         run: |
+          if (-not "${{ env.NGROK_URL }}") { echo "❌ NGROK_URL is missing"; exit 1 }
+
           Set-Content -Path .env -Value "SERVER_IP=${{ env.NGROK_URL }}"
           Add-Content -Path .env -Value "NGROK_URL=${{ env.NGROK_URL }}"
           echo "✅ .env file created with SERVER_IP and NGROK_URL"
@@ -49,9 +69,11 @@ jobs:
           USER: ${{ secrets.USER }}
           SERVER_IP: ${{ env.SERVER_IP }}
         run: |
-          if (-not ${{ secrets.SSH_PRIVATE_KEY }}) { echo "❌ SSH_PRIVATE_KEY is missing"; exit 1 } else { echo "✅ SSH_PRIVATE_KEY is set" }
-          if (-not ${{ env.SERVER_IP }}) { echo "❌ SERVER_IP is missing"; exit 1 } else { echo "✅ SERVER_IP is set: ${{ env.SERVER_IP }}" }
-          if (-not ${{ secrets.USER }}) { echo "❌ USER is missing"; exit 1 } else { echo "✅ USER is set" }
+          if (-not "${{ secrets.SSH_PRIVATE_KEY }}") { echo "❌ SSH_PRIVATE_KEY is missing"; exit 1 }
+          if (-not "${{ env.SERVER_IP }}") { echo "❌ SERVER_IP is missing"; exit 1 }
+          if (-not "${{ secrets.USER }}") { echo "❌ USER is missing"; exit 1 }
+
+          echo "✅ All required secrets and environment variables are set."
 
           Set-Content -Path deploy_key.pem -Value "${{ secrets.SSH_PRIVATE_KEY }}"
           icacls deploy_key.pem /inheritance:r
@@ -59,11 +81,16 @@ jobs:
 
           ssh -v -o StrictHostKeyChecking=no -i deploy_key.pem $USER@$SERVER_IP powershell << 'EOF'
             cd C:\Users\DELL\Desktop\fastapi-book-project
-            
+
+            echo "🚀 Pulling latest changes from Git..."
             git pull origin main
-            
+
+            echo "📦 Installing dependencies..."
             C:\Users\DELL\Desktop\fastapi-book-project\venv\Scripts\python.exe -m pip install -r requirements.txt
-            
+
+            echo "🛑 Stopping any running FastAPI process..."
             taskkill /F /IM python.exe || echo "No FastAPI process running"
+
+            echo "✅ Starting FastAPI server..."
             start /B "" "C:\Users\DELL\Desktop\fastapi-book-project\venv\Scripts\uvicorn.exe" main:app --host 0.0.0.0 --port 8000
           EOF
