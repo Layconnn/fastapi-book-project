@@ -7,99 +7,71 @@ on:
 
 jobs:
   deploy:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Install ngrok
-        shell: pwsh
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
         run: |
-          Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-stable-windows-amd64.zip" -OutFile "ngrok.zip"
-          Expand-Archive ngrok.zip -DestinationPath "$env:USERPROFILE\ngrok"
-          echo "$env:USERPROFILE\ngrok" | Out-File -FilePath $env:GITHUB_PATH -Append
-          & "$env:USERPROFILE\ngrok\ngrok.exe" config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install ngrok
+        run: |
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt update && sudo apt install ngrok
+          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
 
       - name: Start ngrok tunnel
-        shell: pwsh
         run: |
-          Start-Process -NoNewWindow -PassThru -FilePath ngrok -ArgumentList "http 8000"
-          Start-Sleep -Seconds 8  # Ensure ngrok has time to start
+          ngrok http 8000 > /dev/null &
+          sleep 10
 
       - name: Get ngrok public URL
         id: get_ngrok_url
-        shell: pwsh
         run: |
-          $attempts = 0
-          $ngrokUrl = $null
-          while ($attempts -lt 10) {
-            Start-Sleep -Seconds 5
-            try {
-              $ngrokResponse = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -ErrorAction Stop
-              if ($ngrokResponse.tunnels.Count -gt 0) {
-                foreach ($tunnel in $ngrokResponse.tunnels) {
-                  if ($tunnel.proto -eq "https") {
-                    $ngrokUrl = $tunnel.public_url
-                    Write-Host "✅ ngrok is ready: $ngrokUrl"
-                    break
-                  }
-                }
-                break
+          NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url')
+          echo "NGROK_URL=$NGROK_URL" >> $GITHUB_ENV
+
+      - name: Configure Nginx
+        run: |
+          sudo apt update
+          sudo apt install -y nginx
+          sudo bash -c 'cat > /etc/nginx/sites-available/default <<EOF
+          server {
+              listen 80;
+              location / {
+                  proxy_pass http://127.0.0.1:8000/;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
               }
-            } catch {
-              Write-Host "⚠️ ngrok is not ready yet. Retrying..."
-            }
-            $attempts++
           }
+          EOF'
+          sudo systemctl restart nginx
 
-          if (-not $ngrokUrl) {
-            Write-Host "❌ Failed to retrieve ngrok URL after 10 attempts."
-            exit 1
-          }
-
-          echo "NGROK_URL=$ngrokUrl" | Out-File -FilePath $env:GITHUB_ENV -Append
-          echo "SERVER_IP=$ngrokUrl" | Out-File -FilePath $env:GITHUB_ENV -Append
-          echo "✅ NGROK_URL is set: $ngrokUrl"
-
-      - name: Create and Update .env file
-        shell: pwsh
-        run: |
-          if (-not "${{ env.NGROK_URL }}") { echo "❌ NGROK_URL is missing"; exit 1 }
-
-          Set-Content -Path .env -Value "SERVER_IP=${{ env.NGROK_URL }}"
-          Add-Content -Path .env -Value "NGROK_URL=${{ env.NGROK_URL }}"
-          echo "✅ .env file created with SERVER_IP and NGROK_URL"
-
-      - name: Deploy to Windows Server
-        shell: pwsh
+      - name: Deploy to Server
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           USER: ${{ secrets.USER }}
-          SERVER_IP: ${{ env.SERVER_IP }}
+          SERVER_IP: ${{ env.NGROK_URL }}
         run: |
-          if (-not "${{ secrets.SSH_PRIVATE_KEY }}") { echo "❌ SSH_PRIVATE_KEY is missing"; exit 1 }
-          if (-not "${{ env.SERVER_IP }}") { echo "❌ SERVER_IP is missing"; exit 1 }
-          if (-not "${{ secrets.USER }}") { echo "❌ USER is missing"; exit 1 }
-
-          echo "✅ All required secrets and environment variables are set."
-
-          Set-Content -Path deploy_key.pem -Value "${{ secrets.SSH_PRIVATE_KEY }}"
-          icacls deploy_key.pem /inheritance:r
-          icacls deploy_key.pem /grant:r "$($env:USERNAME):(R)"
-
-          ssh -v -o StrictHostKeyChecking=no -i deploy_key.pem $USER@$SERVER_IP powershell << 'EOF'
-            cd C:\Users\DELL\Desktop\fastapi-book-project
-
-            echo "🚀 Pulling latest changes from Git..."
-            git pull origin main
-
-            echo "📦 Installing dependencies..."
-            C:\Users\DELL\Desktop\fastapi-book-project\venv\Scripts\python.exe -m pip install -r requirements.txt
-
-            echo "🛑 Stopping any running FastAPI process..."
-            taskkill /F /IM python.exe || echo "No FastAPI process running"
-
-            echo "✅ Starting FastAPI server..."
-            start /B "" "C:\Users\DELL\Desktop\fastapi-book-project\venv\Scripts\uvicorn.exe" main:app --host 0.0.0.0 --port 8000
-          EOF
+          echo "Deploying to $SERVER_IP"
+          echo "$SSH_PRIVATE_KEY" > deploy_key.pem
+          chmod 600 deploy_key.pem
+          ssh -o StrictHostKeyChecking=no -i deploy_key.pem $USER@$SERVER_IP "
+            cd ~/fastapi-app &&
+            git pull origin main &&
+            source venv/bin/activate &&
+            pip install -r requirements.txt &&
+            pkill -f 'uvicorn' || true &&
+            nohup uvicorn main:app --host 0.0.0.0 --port 8000 &
+          "
+          echo "Deployment successful."
