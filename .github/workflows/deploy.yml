@@ -32,33 +32,35 @@ jobs:
         shell: pwsh
         run: |
           $attempts = 0
+          $ngrokUrl = $null
           while ($attempts -lt 10) {
-              Start-Sleep -Seconds 5
-              try {
-                  $ngrokResponse = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -ErrorAction Stop
-                  if ($ngrokResponse.tunnels.Count -gt 0) {
-                      foreach ($tunnel in $ngrokResponse.tunnels) {
-                          if ($tunnel.proto -eq "https") {  # Ensure we get the HTTPS URL
-                              $ngrokUrl = $tunnel.public_url
-                              Write-Host "✅ ngrok is ready: $ngrokUrl"
-                              break
-                          }
-                      }
-                      break
+            Start-Sleep -Seconds 5
+            try {
+              $ngrokResponse = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -ErrorAction Stop
+              if ($ngrokResponse.tunnels.Count -gt 0) {
+                foreach ($tunnel in $ngrokResponse.tunnels) {
+                  if ($tunnel.proto -eq "https") {
+                    $ngrokUrl = $tunnel.public_url
+                    Write-Host "✅ ngrok is ready: $ngrokUrl"
+                    break
                   }
-              } catch {
-                  Write-Host "⚠️ ngrok is not ready yet. Retrying..."
+                }
+                break
               }
-              $attempts++
+            } catch {
+              Write-Host "⚠️ ngrok is not ready yet. Retrying..."
+            }
+            $attempts++
           }
 
           if (-not $ngrokUrl) {
-              Write-Host "❌ Failed to retrieve ngrok URL after 10 attempts."
-              exit 1
+            Write-Host "❌ Failed to retrieve ngrok URL after 10 attempts."
+            exit 1
           }
 
           echo "NGROK_URL=$ngrokUrl" | Out-File -FilePath $env:GITHUB_ENV -Append
           echo "SERVER_IP=$ngrokUrl" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "✅ NGROK_URL is set: $ngrokUrl"
 
       - name: Create and Update .env file
         shell: pwsh
