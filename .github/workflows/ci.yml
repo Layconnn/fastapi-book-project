@@ -7,7 +7,7 @@ on:
 
 jobs:
   test:
-    runs-on: windows-latest # Run on Windows
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
