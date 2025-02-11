@@ -24,34 +24,37 @@ jobs:
       - name: Start ngrok tunnel
         shell: pwsh
         run: |
-          Start-Process -NoNewWindow -FilePath ngrok -ArgumentList "http 8000"
-          Start-Sleep -Seconds 5  # Ensure ngrok has time to start
+          Start-Process -NoNewWindow -PassThru -FilePath ngrok -ArgumentList "http 8000"
+          Start-Sleep -Seconds 8  # Ensure ngrok has time to start
 
       - name: Get ngrok public URL
         id: get_ngrok_url
         shell: pwsh
         run: |
           $attempts = 0
-          do {
-            Start-Sleep -Seconds 3
+          $ngrokUrl = $null
+          while ($attempts -lt 10) {
+            Start-Sleep -Seconds 5
             try {
-              $NGROK_RESPONSE = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -ErrorAction Stop
-              $NGROK_URL = $NGROK_RESPONSE.tunnels[0].public_url
+              $ngrokResponse = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -ErrorAction Stop
+              if ($ngrokResponse.tunnels.Count -gt 0) {
+                $ngrokUrl = $ngrokResponse.tunnels[0].public_url
+                break
+              }
             } catch {
               Write-Host "⚠️ ngrok is not ready yet. Retrying..."
-              $NGROK_URL = $null
             }
             $attempts++
-          } while (-not $NGROK_URL -and $attempts -lt 5)
+          }
 
-          if (-not $NGROK_URL) {
-            Write-Host "❌ Failed to retrieve ngrok URL after 5 attempts."
+          if (-not $ngrokUrl) {
+            Write-Host "❌ Failed to retrieve ngrok URL after 10 attempts."
             exit 1
           }
 
-          echo "NGROK_URL=$NGROK_URL" | Out-File -FilePath $env:GITHUB_ENV -Append
-          echo "SERVER_IP=$NGROK_URL" | Out-File -FilePath $env:GITHUB_ENV -Append
-          echo "✅ NGROK_URL is set: $NGROK_URL"
+          echo "NGROK_URL=$ngrokUrl" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "SERVER_IP=$ngrokUrl" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "✅ NGROK_URL is set: $ngrokUrl"
 
       - name: Create and Update .env file
         shell: pwsh
