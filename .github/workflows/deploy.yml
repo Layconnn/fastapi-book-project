@@ -26,9 +26,9 @@ jobs:
 
           echo "$SSH_PRIVATE_KEY" > deploy_key.pem
           icacls deploy_key.pem /inheritance:r
-          icacls deploy_key.pem /grant:r "$($env:khalil):(R)"
+          icacls deploy_key.pem /grant:r "$($env:USERNAME):(R)"
 
-          ssh -v -o StrictHostKeyChecking=no -i deploy_key.pem khalil@192.168.212.164 powershell << 'EOF'
+          ssh -v -o StrictHostKeyChecking=no -i deploy_key.pem $USER@$SERVER_IP powershell << 'EOF'
             cd C:\Users\DELL\Desktop\fastapi-book-project
             
             git pull origin main
@@ -38,3 +38,20 @@ jobs:
             taskkill /F /IM python.exe || echo "No FastAPI process running"
             start /B "" "C:\Users\DELL\Desktop\fastapi-book-project\venv\Scripts\uvicorn.exe" main:app --host 0.0.0.0 --port 8000
           EOF
+
+      - name: Install ngrok
+        run: |
+          Invoke-WebRequest -Uri https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
+          Expand-Archive ngrok.zip -DestinationPath $env:USERPROFILE\ngrok
+          $env:Path += ";$env:USERPROFILE\ngrok"
+          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+
+      - name: Start ngrok tunnel
+        run: |
+          Start-Process -NoNewWindow -FilePath ngrok -ArgumentList "http 8000"
+
+      - name: Get ngrok public URL
+        run: |
+          Start-Sleep -s 5  # Wait for ngrok to start
+          $NGROK_URL = (Invoke-RestMethod -Uri http://127.0.0.1:4040/api/tunnels).tunnels[0].public_url
+          echo "Ngrok Public URL: $NGROK_URL"
