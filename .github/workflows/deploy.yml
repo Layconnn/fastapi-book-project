@@ -18,68 +18,24 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install ngrok
-        run: |
-          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
-          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
-          sudo apt update && sudo apt install -y ngrok
-          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
-
-      - name: Start ngrok tunnel
-        run: |
-          ngrok http 8080 > /dev/null &
-          sleep 10
-
-      - name: Get ngrok public URL
-        id: get_ngrok_url
-        run: |
-          NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url')
-          echo "NGROK_URL=$NGROK_URL" >> $GITHUB_ENV
-          echo "Public URL: $NGROK_URL"
-
-      - name: Check for running processes on port 8080
-        run: sudo netstat -tulnp | grep :8080 || echo "No conflicts on port 8080"
-
-      - name: Install & Configure Nginx
-        run: |
-          sudo apt update
-          sudo apt install -y nginx
-          sudo bash -c 'cat > /etc/nginx/sites-available/default <<EOF
-          server {
-              listen 8080;
-              location / {
-                  proxy_pass http://127.0.0.1:8000/;
-                  proxy_set_header Host $host;
-                  proxy_set_header X-Real-IP $remote_addr;
-                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                  proxy_set_header X-Forwarded-Proto $scheme;
-              }
-          }
-          EOF'
-          sudo nginx -t
-          sudo systemctl reload nginx
-
-      - name: Debug Nginx Status
-        run: |
-          sudo systemctl status nginx
-          sudo journalctl -xeu nginx
-
-      - name: Deploy to Server
+      - name: Deploy to EC2
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           USER: ${{ secrets.USER }}
-          SERVER_IP: ${{ env.NGROK_URL }}
+          SERVER_IP: ${{ secrets.SERVER_IP }}
         run: |
-          echo "Deploying to $SERVER_IP"
+          # Create the deploy_key.pem file from the secret
           echo "$SSH_PRIVATE_KEY" > deploy_key.pem
           chmod 600 deploy_key.pem
+
+          # SSH into the EC2 instance and deploy the changes
           ssh -o StrictHostKeyChecking=no -i deploy_key.pem $USER@$SERVER_IP "
-            cd ~/fastapi-app &&
+            cd ~/your-fastapi-repo &&
             git pull origin main &&
             source venv/bin/activate &&
             pip install -r requirements.txt &&
