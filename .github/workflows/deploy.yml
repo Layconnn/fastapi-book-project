@@ -35,11 +35,11 @@ jobs:
 
           # SSH into the EC2 instance and deploy the changes
           ssh -o StrictHostKeyChecking=no -i deploy_key.pem $USER@$SERVER_IP "
-            cd ~/your-fastapi-repo &&
+            cd ~/fastapi-book-project &&
             git pull origin main &&
             source venv/bin/activate &&
             pip install -r requirements.txt &&
             pkill -f 'uvicorn' || true &&
-            nohup uvicorn app:app --host 0.0.0.0 --port 8000 &
+            nohup venv/bin/uvicorn app:app --host 0.0.0.0 --port 8000 > /dev/null 2>&1 &
           "
           echo "Deployment successful."
