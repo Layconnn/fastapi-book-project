@@ -27,9 +27,14 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-asyncio httpx pytest-cov
 
-      - name: Run Tests
+      - name: Check Syntax
+        run: python -m compileall .
+
+      - name: Run Tests and Generate Coverage
         run: |
-          pytest
+          # --cov=. covers all files
+          # --cov-report=html:reports/ creates an HTML coverage report in the 'reports/' folder
+          pytest --maxfail=5 --disable-warnings --cov=. --cov-report=html:reports/ tests/
 
       - name: Upload Test Results
         if: always()
